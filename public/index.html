@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SolfaScribe OMR - PDF to MusicXML</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.show {
+            display: block;
+        }
+        
+        .status.loading {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            color: #1565c0;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            color: #2e7d32;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            color: #c62828;
+        }
+        
+        .status-text {
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .download-btn {
+            background: #4caf50;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .download-btn:hover {
+            background: #45a049;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2196f3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error-details {
+            margin-top: 10px;
+            font-size: 12px;
+            opacity: 0.8;
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎼 SolfaScribe OMR</h1>
+        <p class="subtitle">Convert PDF sheet music to MusicXML</p>
+        
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="pdfFile">Select PDF or Image:</label>
+                <input type="file" id="pdfFile" accept=".pdf,.jpg,.jpeg,.png" required>
+            </div>
+            <button type="submit" id="uploadBtn">Upload & Convert</button>
+        </form>
+        
+        <div id="status" class="status">
+            <div class="status-text" id="statusText"></div>
+            <div id="errorDetails" class="error-details"></div>
+            <button id="downloadBtn" class="download-btn" style="display: none;">Download MusicXML</button>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = window.location.origin;
+        let currentJobId = null;
+        let currentFileName = null;
+        
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('pdfFile');
+            const file = fileInput.files[0];
+            
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            showStatus('loading', '<span class="spinner"></span>Uploading...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/jobs`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error('Upload failed');
+                
+                const data = await response.json();
+                currentJobId = data.jobId;
+                
+                showStatus('loading', '<span class="spinner"></span>Processing (this may take 1-2 minutes)...');
+                pollJobStatus();
+                
+            } catch (error) {
+                showStatus('error', 'Upload failed: ' + error.message);
+            }
+        });
+        
+        async function pollJobStatus() {
+            if (!currentJobId) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${currentJobId}`);
+                const data = await response.json();
+                
+                if (data.status === 'processing') {
+                    showStatus('loading', '<span class="spinner"></span>Processing (this may take 1-2 minutes)...');
+                    setTimeout(pollJobStatus, 2000);
+                } else if (data.status === 'completed') {
+                    if (data.movements && data.movements.length > 0) {
+                        currentFileName = data.movements[0];
+                        showStatus('success', '✅ Conversion complete! Ready to download.');
+                        document.getElementById('downloadBtn').style.display = 'block';
+                    } else {
+                        showStatus('error', 'No movements found in the conversion.');
+                    }
+                } else if (data.status === 'failed') {
+                    const errorMsg = data.failure || 'Unknown error';
+                    showStatus('error', `❌ Conversion failed: ${errorMsg}`);
+                    if (data.logTail) {
+                        document.getElementById('errorDetails').textContent = data.logTail;
+                    }
+                } else {
+                    showStatus('loading', '<span class="spinner"></span>Processing...');
+                    setTimeout(pollJobStatus, 2000);
+                }
+            } catch (error) {
+                showStatus('error', 'Status check failed: ' + error.message);
+                setTimeout(pollJobStatus, 2000);
+            }
+        }
+        
+        document.getElementById('downloadBtn').addEventListener('click', async () => {
+            if (!currentJobId || !currentFileName) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${currentJobId}/files/${currentFileName}`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFileName}`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                showStatus('error', 'Download failed: ' + error.message);
+            }
+        });
+        
+        function showStatus(type, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status show ${type}`;
+            document.getElementById('statusText').innerHTML = message;
+            document.getElementById('errorDetails').textContent = '';
+        }
+    </script>
+</body>
+</html>
