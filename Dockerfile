@@ -31,6 +31,7 @@ COPY package.json package-lock.json ./
 # npm ci honours the lockfile exactly — no unpinned installs (review note).
 RUN npm ci --omit=dev
 COPY src ./src
+COPY public ./public
 COPY tsconfig.json ./
 
 ENV AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris \
