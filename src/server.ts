@@ -41,6 +41,11 @@ export function buildServer(store: JobStore) {
   void server.register(cors, { origin: configuration.corsOrigin });
   void server.register(multipart, { limits: { fileSize: configuration.maxUploadBytes } });
 
+  // Serve static files from public directory
+  void server.register(import('@fastify/static'), {
+    root: join(import.meta.dirname, '..', 'public'),
+  });
+
   server.get('/healthz', async () => ({ ok: true }));
 
   server.post('/jobs', async (request, reply) => {
